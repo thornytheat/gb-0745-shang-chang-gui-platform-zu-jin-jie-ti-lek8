@@ -2,9 +2,10 @@ import os
 
 from app.config import DEFAULT_PERIOD, MAX_SOURCE_BYTES, ROOT, RULE_VERSION, SAMPLES
 from app.errors import InputError
-from app.modules import STAGES, register
+from app.modules import NAV, STAGES, register
 from app.modules.m7_publish.export import evidence_pack
 from app.modules.m7_publish.service import run_once
+from app.modules.m8_closure.store import ClosureStore
 from app.store import RunStore
 from app.web import find_run, sample_bytes, store, yuan
 from flask import Flask, abort, jsonify, render_template, request, url_for
@@ -14,13 +15,15 @@ def create_app(config=None):
     app = Flask(__name__)
     app.config.update(
         DATABASE=os.environ.get("RENT_DB", ROOT / "instance" / "rent.sqlite3"),
-        MAX_CONTENT_LENGTH=MAX_SOURCE_BYTES + 32 * 1024,
+        MAX_CONTENT_LENGTH=2 * MAX_SOURCE_BYTES + 32 * 1024,
         SAMPLE_DIR=ROOT / "sample_data",
     )
     if config:
         app.config.update(config)
     app.json.ensure_ascii = False
     app.extensions["rent-runs"] = RunStore(app.config["DATABASE"])
+    app.extensions["closure-runs"] = ClosureStore(app.config["DATABASE"])
+    app.config["STAGE_LINKS"] = NAV
     app.jinja_env.filters["yuan"] = yuan
     register(app)
 
@@ -35,7 +38,7 @@ def create_app(config=None):
 
     @app.errorhandler(413)
     def too_large(error):
-        return jsonify(code="TOO_LARGE", detail="文件超过 256 KiB"), 413
+        return jsonify(code="TOO_LARGE", detail="单个文件超过 256 KiB"), 413
 
     @app.get("/")
     @app.get("/work/<stage>")
@@ -61,7 +64,7 @@ def create_app(config=None):
             f"{stage}.html",
             active=stage,
             title=stage_titles[stage],
-            stages=STAGES,
+            stages=NAV,
             run=run,
             meta=run["运行清单"],
             keys=keys,

@@ -15,6 +15,7 @@
 | M5 退单回冲 | 追原流水，重算旧月应计差 | `GET /api/refunds/{id}` | `app/modules/m5_refunds/credits.py` `app/modules/m5_refunds/service.py` | `tests/test_refunds.py` |
 | M6 租金勾稽 | 核对实缴、欠缴与账簿行数 | `GET /api/reconcile/{id}` | `app/modules/m6_reconcile/service.py` `app/modules/m6_reconcile/totals.py` | `tests/test_reconcile.py` |
 | M7 结算复核 | 从批次凭证复算、下载证据 | `GET /api/publish/{id}` `POST /api/runs` | `app/modules/m7_publish/service.py` `app/modules/m7_publish/export.py` `app/store.py` | `tests/test_publish.py` |
+| M8 停业补偿 | 按停业告知分摊固定补偿池，挂起不可复核柜台 | `GET /api/closure/{id}` `POST /api/closure/runs` | `app/modules/m8_closure/allocation.py` `app/modules/m8_closure/notice.py` `app/modules/m8_closure/store.py` | `tests/test_closure.py` |
 
 ## 陷阱登记
 
@@ -31,10 +32,16 @@
 | TRAP-17 | `mall.json` 旧金额字段 gross | 旧账对应列丢失 | 显式兼容别名 | `app/modules/m1_intake/service.py` | `tests/test_intake.py::test_legacy_alias` |
 | TRAP-23 | `mall.json` 合同于当日切换 | 同时计入两个版本 | 合同 `[start,end)` | `app/modules/m2_contracts/versions.py` | `tests/test_contracts.py::test_adjacent_boundaries` |
 | TRAP-25 | `mall.json` 存在合同重叠 | 随机采信一版 | 暂停区间内归属并提供冲突区间 | `app/modules/m2_contracts/service.py` | `tests/test_contracts.py::test_overlap_not_guessed` |
+| TRAP-26 | 固定补偿池按损失分配合计可能超出 | 逐柜按比例付钱，总额溢出 | 分配池取池与损失合计的较小值，整数分摊最大余数补齐 | `app/modules/m8_closure/allocation.py` | `tests/test_closure.py::test_sample_pool_is_never_exceeded` |
+| TRAP-27 | 参考期有隔离记录或合同冲突 | 用残缺销售算损失，高估或低估 | 挂起该柜台，不混入可发布补偿与分配池 | `app/modules/m8_closure/allocation.py` | `tests/test_closure.py::test_incomplete_reference_sales_suspended` |
+| TRAP-28 | 同一告知重复运行 | 每跑一次再发一份补偿 | 告知号内单一已发布版本，重跑复用批次，新账簿取代旧版 | `app/modules/m8_closure/store.py` | `tests/test_closure.py::test_rerun_adds_no_compensation` |
+| TRAP-29 | 补偿计算中途失败 | 旧版本被覆盖或丢失 | 事务内先算后写，失败回滚保留旧版 | `app/modules/m8_closure/store.py` | `tests/test_closure.py::test_failed_run_keeps_old_version` |
 
 ## 验算
 
 `clean.json` 中 001 柜台的本月净销售 1400 元。前 1000 元按 10%，后 400 元按 20%，抽成为 180 元。旧期退单使原月应计由 130 调整为 110 元。本期应缴 160 元，与实缴平账。
+
+`east.json` + `closure.json`：五个柜台停业 9 日（11-20 至 11-28），参考 2026-10。101 日均 500 元，损失 4,500 元；102 日均 300 元，损失 2,700 元。可发布损失合计 7,200 元，补偿池 2,000 元封顶后按 62.5% / 37.5% 分成 1,250 元和 750 元。103 参考期有隔离记录、104 停业期合同重叠、105 停业期合同空档，均挂起，不参与分配。同池按保底份额的对照值为 769.23 元和 1,230.77 元，体现租金份额口径的偏差。
 
 ## 已知不覆盖
 

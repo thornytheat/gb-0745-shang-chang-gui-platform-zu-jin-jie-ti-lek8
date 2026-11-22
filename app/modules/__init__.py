@@ -10,7 +10,10 @@ STAGES = (
     ("publish", "结算复核", "m7_publish"),
 )
 
+CLOSURE_STAGE = ("closure", "停业补偿", "m8_closure")
+NAV = STAGES + (CLOSURE_STAGE,)
+
 
 def register(app):
-    for _, _, package in STAGES:
+    for _, _, package in NAV:
         app.register_blueprint(import_module(f"app.modules.{package}.handler").routes)

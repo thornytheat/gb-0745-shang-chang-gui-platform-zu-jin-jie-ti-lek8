@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block period %}{{ meta['参考账期'] }}{% endblock %}
+{% block export %}<a data-export href="{{ url_for('closure.export', run_id=meta['批次']) }}">下载补偿结果</a>{% endblock %}
+{% block kpis %}
+<section class="kpis kpis-closure" aria-label="停业补偿指标">
+  <div><span>补偿池 · 元</span><strong>{{ run['补偿池勾稽']['补偿池分']|yuan }}</strong></div>
+  <div><span>已分配 · 元</span><strong id="due">{{ run['补偿池勾稽']['已分配分']|yuan }}</strong></div>
+  <div><span>池内余额 · 元</span><strong>{{ run['补偿池勾稽']['未分配分']|yuan }}</strong></div>
+  <div><span>可发布 · 柜</span><strong>{{ run['补偿池勾稽']['可发布柜台'] }}</strong></div>
+  <div><span>挂起 · 柜</span><strong>{{ run['补偿池勾稽']['挂起柜台'] }}</strong></div>
+</section>
+{% endblock %}
+{% block runform %}
+<form id="closure-form" method="post" action="/api/closure/runs" enctype="multipart/form-data">
+  <label>账簿
+    <select name="sample">{% for code, name in samples.items() %}<option value="{{ code }}" {% if code == sample %}selected{% endif %}>{{ name }}</option>{% endfor %}
+    </select>
+  </label>
+  <label class="upload">上传账簿 JSON<input type="file" name="file" accept=".json,application/json"></label>
+  <label class="upload">上传停业告知<input type="file" name="notice" accept=".json,application/json"></label>
+  <button type="submit">生成补偿结果</button>
+  <output id="run-feedback" role="status">{% if reused %}已复用该版本，未新增补偿{% endif %}</output>
+</form>
+{% endblock %}
+{% block stage %}
+{% if run.get('状态') == 'superseded' %}
+<p class="version-banner" role="status">此批次已被后续版本取代，仅供追溯；当前生效版本见下方「版本记录」。</p>
+{% endif %}
+<section class="panel notice-panel">
+  <div class="panel-head"><h2>停业告知</h2><span>v{{ run.get('版本', 1) }} · 告知 {{ run['停业告知']['告知号'] }}</span></div>
+  <dl class="notice-facts">
+    <div><dt>商场</dt><dd>{{ run['停业告知']['商场'] }}</dd></div>
+    <div><dt>停业区间</dt><dd>{{ run['停业告知']['停业起'] }} 至 {{ run['停业告知']['停业止'] }}</dd></div>
+    <div><dt>停业天数</dt><dd>{{ run['停业告知']['停业天数'] }} 日</dd></div>
+    <div><dt>参考账期</dt><dd>{{ run['停业告知']['参考账期'] }}（{{ run['停业告知']['参考起'] }} 至 {{ run['停业告知']['参考止'] }}）</dd></div>
+    <div><dt>告知柜台</dt><dd>{{ run['停业告知']['柜台数'] }} 个</dd></div>
+  </dl>
+</section>
+
+<section class="panel">
+  <div class="panel-head"><h2>补偿分配</h2><span>{{ run['可发布补偿']|length }} 个可发布柜台</span></div>
+  {% if run['可发布补偿'] %}
+  <div class="table-scroll" tabindex="0" aria-label="可发布补偿">
+    <table>
+      <thead><tr>
+        <th scope="col">柜台</th><th scope="col" class="num">停业天数</th>
+        <th scope="col" class="num">参考净销售 · 元</th><th scope="col" class="num">停业损失 · 元</th>
+        <th scope="col" class="num">损失占比</th><th scope="col" class="num">补偿 · 元</th>
+        <th scope="col" class="num">对照保底份额 · 元</th><th scope="col">合同依据</th>
+      </tr></thead>
+      <tbody>{% for row in run['可发布补偿'] %}
+        <tr>
+          <td>{{ row['柜台'] }}</td>
+          <td class="num">{{ row['停业天数'] }}</td>
+          <td class="num">{{ row['参考净销售分']|yuan }}</td>
+          <td class="num">{{ row['停业损失分']|yuan }}</td>
+          <td class="num">{{ '%.2f'|format(row['损失占比万分'] / 100) }}%</td>
+          <td class="num"><strong>{{ row['补偿分']|yuan }}</strong></td>
+          <td class="num">{{ row['对照保底份额分']|yuan }}</td>
+          <td class="basis">{{ row['依据'] }}</td>
+        </tr>
+      {% endfor %}</tbody>
+    </table>
+  </div>
+  {% else %}<p class="empty">没有可发布柜台，结果未生成。</p>{% endif %}
+</section>
+
+<section class="panel">
+  <div class="panel-head"><h2>补偿池勾稽</h2><span class="{% if pool_ok %}ok{% else %}bad{% endif %}">{% if pool_ok %}池未突破{% else %}池被突破{% endif %}</span></div>
+  <dl class="pool-facts">
+    <div><dt>补偿池</dt><dd>{{ run['补偿池勾稽']['补偿池分']|yuan }}</dd></div>
+    <div><dt>可发布损失合计</dt><dd>{{ run['补偿池勾稽']['可发布损失分']|yuan }}</dd></div>
+    <div><dt>可分配上限</dt><dd>{{ run['补偿池勾稽']['可分配上限分']|yuan }}</dd></div>
+    <div><dt>已分配</dt><dd>{{ run['补偿池勾稽']['已分配分']|yuan }}</dd></div>
+    <div><dt>池内余额</dt><dd>{{ run['补偿池勾稽']['未分配分']|yuan }}</dd></div>
+    <div><dt>是否封顶</dt><dd>{{ '是' if run['补偿池勾稽']['是否封顶'] else '否' }}</dd></div>
+  </dl>
+  <p class="note">{{ run['补偿池勾稽']['舍入方法'] }}。{{ run['补偿池勾稽']['挂起口径'] }}。{{ run['补偿池勾稽']['对照口径'] }}。</p>
+</section>
+
+<section class="panel">
+  <div class="panel-head"><h2>挂起柜台</h2><span>{{ run['挂起柜台']|length }} 个，不计入本次补偿</span></div>
+  {% if run['挂起柜台'] %}
+  <div class="table-scroll" tabindex="0" aria-label="挂起柜台">
+    <table>
+      <thead><tr>
+        <th scope="col">柜台</th><th scope="col" class="num">停业天数</th><th scope="col">原因码</th>
+        <th scope="col">说明</th><th scope="col">依据</th>
+      </tr></thead>
+      <tbody>{% for row in run['挂起柜台'] %}
+        <tr>
+          <td>{{ row['柜台'] }}</td>
+          <td class="num">{{ row['停业天数'] }}</td>
+          <td><code>{{ row['原因码'] }}</code></td>
+          <td>{{ row['说明'] }}</td>
+          <td class="basis">{{ row['依据'] }}</td>
+        </tr>
+      {% endfor %}</tbody>
+    </table>
+  </div>
+  {% else %}<p class="empty">没有挂起柜台。</p>{% endif %}
+</section>
+
+<div class="closure-tail">
+  <section class="panel">
+    <div class="panel-head"><h2>版本记录</h2><span>告知 {{ notice_id }}</span></div>
+    <ol class="archive">
+      {% for item in versions %}
+      <li>
+        <a href="{{ url_for('closure.work', run=item['批次']) }}">{{ item['批次'] }}</a>
+        <span class="status" data-status="{{ item['状态'] }}">{{ '已发布' if item['状态'] == 'published' else '已被取代' }}</span>
+        <small>v{{ item['版本'] }} · {{ item['生成时间'] }}</small>
+      </li>
+      {% else %}<li>尚无版本。</li>{% endfor %}
+    </ol>
+  </section>
+  <section class="panel">
+    <div class="panel-head"><h2>账簿核对</h2><span>收银采信</span></div>
+    <dl class="pool-facts">
+      <div><dt>收到交易行</dt><dd>{{ run['账簿核对']['收到交易行'] }}</dd></div>
+      <div><dt>采信销售</dt><dd>{{ run['账簿核对']['采信销售'] }}</dd></div>
+      <div><dt>已配对退单</dt><dd>{{ run['账簿核对']['已配对退单'] }}</dd></div>
+      <div><dt>隔离</dt><dd>{{ run['账簿核对']['隔离'] }}</dd></div>
+      <div><dt>重复</dt><dd>{{ run['账簿核对']['重复'] }}</dd></div>
+    </dl>
+  </section>
+</div>
+{% endblock %}
